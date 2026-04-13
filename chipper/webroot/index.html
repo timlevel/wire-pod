@@ -52,6 +52,11 @@
           <a href="#" onclick="showVersion(); return false;"><i class="fa-solid fa-code-compare" id="icon-Version"
               name="icon"></i><br />Version Info</a>
         </div>
+        <!--Smarthome-->
+        <div class="main-nav-child">
+          <a href="#" onclick="showSmarthome(); return false;"><i class="fa-solid fa-house-signal" id="icon-Smarthome"
+              name="icon"></i><br />Smart Home</a>
+        </div>
         <!--UI Customizer-->
         <div class="main-nav-child">
           <a href="#" onclick="showUICustomizer(); return false;"><i class="fa-solid fa-pen-nib" id="icon-Customizer"
@@ -202,6 +207,76 @@
           <option style="font-family: 'DroidSans';" value="droidsans" selected="selected">Droid Sans (default)</option>
           <option style="font-family: 'IBMVGA';" value="ibmvga">IBM VGA 8x16 (retro)</option>
         </select>
+        <hr />
+      </div>
+
+      <div id="section-smarthome" style="display: none">
+        <h2>Smart Home (Home Assistant)</h2>
+        <hr class="small-hr">
+        <p>Enable MQTT integration with Home Assistant to control Vector via your smart home platform.</p>
+        
+        <label for="enableSmarthome">
+          <input type="checkbox" id="enableSmarthome" onchange="checkSmarthome()" />
+          Enable Smart Home Integration
+        </label>
+        
+        <div id="smarthomeConnectionStatus" class="status-disconnected">Status: Disconnected</div>
+        
+        <div id="smarthomeProviderDiv" style="display: none; margin-top: 10px;">
+          <label for="smarthomeProvider">Provider:</label>
+          <select id="smarthomeProvider">
+            <option value="homeassistant" selected>Home Assistant</option>
+          </select>
+        </div>
+        
+        <div id="mqttHostDiv" style="display: none; margin-top: 10px;">
+          <label for="mqttHost">MQTT Broker Host:</label>
+          <input type="text" id="mqttHost" placeholder="homeassistant.local or 192.168.1.100" />
+        </div>
+        
+        <div id="mqttPortDiv" style="display: none; margin-top: 10px;">
+          <label for="mqttPort">MQTT Port:</label>
+          <input type="number" id="mqttPort" value="1883" />
+        </div>
+        
+        <div id="mqttUserDiv" style="display: none; margin-top: 10px;">
+          <label for="mqttUser">MQTT Username:</label>
+          <input type="text" id="mqttUser" />
+        </div>
+        
+        <div id="mqttPassDiv" style="display: none; margin-top: 10px;">
+          <label for="mqttPass">MQTT Password:</label>
+          <input type="password" id="mqttPass" />
+        </div>
+        
+        <div id="mqttClientIDDiv" style="display: none; margin-top: 10px;">
+          <label for="mqttClientID">Client ID:</label>
+          <input type="text" id="mqttClientID" value="wire-pod-vector" />
+        </div>
+        
+        <div id="mqttTLSDiv" style="display: none; margin-top: 10px;">
+          <label for="mqttTLS">
+            <input type="checkbox" id="mqttTLS" />
+            Use TLS/SSL
+          </label>
+        </div>
+        
+        <div id="smarthomeStatus"></div>
+        <div id="smarthomeTestStatus"></div>
+        
+        <div style="margin-top: 15px;">
+          <button onclick="sendSmarthomeConfig()">Save Configuration</button>
+          <button onclick="testSmarthomeConnection()">Test Connection</button>
+        </div>
+        
+        <hr />
+        <h3>Home Assistant Configuration</h3>
+        <p class="desc">After saving, Vector will appear as a device in Home Assistant. Use the following topics:</p>
+        <ul class="desc">
+          <li><strong>Command:</strong> <code>wirepod/vector/command</code> - Send text commands to Vector</li>
+          <li><strong>State:</strong> <code>wirepod/vector/state</code> - Current state of Vector</li>
+          <li><strong>TTS:</strong> <code>wirepod/vector/tts</code> - Send text for Vector to speak</li>
+        </ul>
         <hr />
       </div>
 

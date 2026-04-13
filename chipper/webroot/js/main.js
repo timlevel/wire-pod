@@ -614,3 +614,118 @@ function toggleVisibility(sections, sectionToShow, iconId) {
   getE(sectionToShow).style.display = "block";
   updateColor(iconId);
 }
+
+function showSmarthome() {
+  toggleVisibility(["section-smarthome"], "section-smarthome", "icon-Smarthome");
+  updateSmarthomeConfig();
+}
+
+function checkSmarthome() {
+  const enableSmarthome = getE("enableSmarthome").checked;
+  const smarthomeInputs = [
+    "smarthomeProviderDiv",
+    "mqttHostDiv",
+    "mqttPortDiv",
+    "mqttUserDiv",
+    "mqttPassDiv",
+    "mqttClientIDDiv",
+    "mqttTLSDiv"
+  ];
+  smarthomeInputs.forEach((id) => {
+    getE(id).style.display = enableSmarthome ? "block" : "none";
+  });
+}
+
+function sendSmarthomeConfig() {
+  const data = {
+    enable: getE("enableSmarthome").checked,
+    provider: getE("smarthomeProvider").value,
+    mqtt_host: getE("mqttHost").value,
+    mqtt_port: parseInt(getE("mqttPort").value) || 1883,
+    mqtt_user: getE("mqttUser").value,
+    mqtt_pass: getE("mqttPass").value,
+    client_id: getE("mqttClientID").value || "wire-pod-vector",
+    use_tls: getE("mqttTLS").checked,
+    connected: false,
+    last_error: ""
+  };
+
+  displayMessage("smarthomeStatus", "Saving...");
+
+  fetch("/api/set_smarthome_config", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(data),
+  })
+    .then((response) => response.text())
+    .then((response) => {
+      displayMessage("smarthomeStatus", response);
+    })
+    .catch((error) => {
+      displayError("smarthomeStatus", "Error: " + error.message);
+    });
+}
+
+function testSmarthomeConnection() {
+  const data = {
+    mqtt_host: getE("mqttHost").value,
+    mqtt_port: parseInt(getE("mqttPort").value) || 1883,
+    mqtt_user: getE("mqttUser").value,
+    mqtt_pass: getE("mqttPass").value,
+    client_id: getE("mqttClientID").value || "wire-pod-vector-test",
+    use_tls: getE("mqttTLS").checked
+  };
+
+  displayMessage("smarthomeTestStatus", "Testing connection...");
+
+  fetch("/api/test_smarthome_connection", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(data),
+  })
+    .then((response) => {
+      if (!response.ok) {
+        return response.text().then(text => { throw new Error(text) });
+      }
+      return response.json();
+    })
+    .then((data) => {
+      displayMessage("smarthomeTestStatus", data.message || "Connection successful!");
+    })
+    .catch((error) => {
+      displayError("smarthomeTestStatus", "Connection failed: " + error.message);
+    });
+}
+
+function updateSmarthomeConfig() {
+  fetch("/api/get_smarthome_config")
+    .then((response) => response.json())
+    .then((data) => {
+      getE("enableSmarthome").checked = data.enable || false;
+      getE("smarthomeProvider").value = data.provider || "homeassistant";
+      getE("mqttHost").value = data.mqtt_host || "";
+      getE("mqttPort").value = data.mqtt_port || 1883;
+      getE("mqttUser").value = data.mqtt_user || "";
+      getE("mqttPass").value = data.mqtt_pass || "";
+      getE("mqttClientID").value = data.client_id || "wire-pod-vector";
+      getE("mqttTLS").checked = data.use_tls || false;
+      
+      // Update connection status display
+      if (data.connected) {
+        getE("smarthomeConnectionStatus").textContent = "Status: Connected";
+        getE("smarthomeConnectionStatus").className = "status-connected";
+      } else {
+        getE("smarthomeConnectionStatus").textContent = data.last_error ? "Status: Error - " + data.last_error : "Status: Disconnected";
+        getE("smarthomeConnectionStatus").className = "status-disconnected";
+      }
+      
+      checkSmarthome();
+    })
+    .catch((error) => {
+      console.error("Failed to load smarthome config:", error);
+    });
+}

@@ -46,8 +46,23 @@ type apiConfig struct {
 		EPConfig bool   `json:"epconfig"`
 		Port     string `json:"port"`
 	} `json:"server"`
-	HasReadFromEnv   bool `json:"hasreadfromenv"`
-	PastInitialSetup bool `json:"pastinitialsetup"`
+	Smarthome        SmarthomeConfig `json:"smarthome"`
+	HasReadFromEnv   bool            `json:"hasreadfromenv"`
+	PastInitialSetup bool            `json:"pastinitialsetup"`
+}
+
+// SmarthomeConfig represents the Home Assistant MQTT configuration
+type SmarthomeConfig struct {
+	Enable    bool   `json:"enable"`
+	Provider  string `json:"provider"`
+	MQTTHost  string `json:"mqtt_host"`
+	MQTTPort  int    `json:"mqtt_port"`
+	MQTTUser  string `json:"mqtt_user"`
+	MQTTPass  string `json:"mqtt_pass"`
+	ClientID  string `json:"client_id"`
+	UseTLS    bool   `json:"use_tls"`
+	Connected bool   `json:"connected"`
+	LastError string `json:"last_error"`
 }
 
 func WriteConfigToDisk() {

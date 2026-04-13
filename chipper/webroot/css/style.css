@@ -593,3 +593,56 @@ input[type='checkbox']:checked:after {
   margin-left: 5px;
   word-break: break-word;
 }
+
+/* Smart Home status styles */
+.status-connected {
+  color: var(--fg-color);
+  margin-top: 10px;
+  font-weight: bold;
+}
+
+.status-disconnected {
+  color: #ff6b6b;
+  margin-top: 10px;
+  font-weight: bold;
+}
+
+/* Input number style */
+input[type="number"] {
+  background-color: #2d2d2d;
+  color: #ffffff;
+  font-family: var(--body-font-family);
+  font-size: 1.0em;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  text-align: center;
+  border: 2px solid var(--fg-color);
+  box-sizing: border-box;
+  transition: border-color 0.3s;
+}
+
+input[type="number"]:hover, input[type="number"]:focus {
+  border-color: white;
+  border: 2px solid;
+  box-sizing: border-box;
+  transition: border-color 0.3s;
+}
+
+/* Password input style */
+input[type="password"] {
+  background-color: #2d2d2d;
+  color: #ffffff;
+  font-family: var(--body-font-family);
+  font-size: 1.0em;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  text-align: center;
+  border: 2px solid var(--fg-color);
+  box-sizing: border-box;
+  transition: border-color 0.3s;
+}
+
+input[type="password"]:hover, input[type="password"]:focus {
+  border-color: white;
+  border: 2px solid;
+  box-sizing: border-box;
+  transition: border-color 0.3s;
+}

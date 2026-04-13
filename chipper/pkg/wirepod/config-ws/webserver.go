@@ -18,6 +18,7 @@ import (
 	"github.com/kercre123/wire-pod/chipper/pkg/wirepod/localization"
 	processreqs "github.com/kercre123/wire-pod/chipper/pkg/wirepod/preqs"
 	botsetup "github.com/kercre123/wire-pod/chipper/pkg/wirepod/setup"
+	"github.com/kercre123/wire-pod/chipper/pkg/wirepod/smarthome"
 )
 
 var SttInitFunc func() error
@@ -67,6 +68,12 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 		handleGenerateCerts(w)
 	case "is_api_v3":
 		fmt.Fprintf(w, "it is!")
+	case "set_smarthome_config":
+		handleSetSmarthomeConfig(w, r)
+	case "get_smarthome_config":
+		handleGetSmarthomeConfig(w)
+	case "test_smarthome_connection":
+		handleTestSmarthomeConnection(w, r)
 	default:
 		http.Error(w, "not found", http.StatusNotFound)
 	}
@@ -215,6 +222,61 @@ func handleSetKGAPI(w http.ResponseWriter, r *http.Request) {
 func handleGetKGAPI(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(vars.APIConfig.Knowledge)
+}
+
+func handleSetSmarthomeConfig(w http.ResponseWriter, r *http.Request) {
+	var config vars.SmarthomeConfig
+	if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
+		http.Error(w, "invalid request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// If disabling smarthome, disconnect first
+	if !config.Enable && vars.APIConfig.Smarthome.Enable {
+		smarthome.Disconnect()
+	}
+
+	vars.APIConfig.Smarthome = config
+	vars.WriteConfigToDisk()
+
+	// Try to connect if enabled
+	if config.Enable {
+		go func() {
+			if err := smarthome.Connect(); err != nil {
+				logger.Println("Failed to connect to MQTT: " + err.Error())
+			}
+		}()
+	}
+
+	fmt.Fprint(w, "Configuration saved successfully.")
+}
+
+func handleGetSmarthomeConfig(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(vars.APIConfig.Smarthome)
+}
+
+func handleTestSmarthomeConnection(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		MQTTHost string `json:"mqtt_host"`
+		MQTTPort int    `json:"mqtt_port"`
+		MQTTUser string `json:"mqtt_user"`
+		MQTTPass string `json:"mqtt_pass"`
+		ClientID string `json:"client_id"`
+		UseTLS   bool   `json:"use_tls"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "invalid request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if err := smarthome.TestConnection(request.MQTTHost, request.MQTTPort, request.MQTTUser, request.MQTTPass, request.ClientID, request.UseTLS); err != nil {
+		http.Error(w, "Connection failed: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "success", "message": "Connected successfully to MQTT broker"})
 }
 
 func handleSetSTTInfo(w http.ResponseWriter, r *http.Request) {

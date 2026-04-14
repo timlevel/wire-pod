@@ -54,14 +54,35 @@ func Connect() error {
 		return fmt.Errorf("smarthome is not enabled")
 	}
 
+	// Snapshot config under lock to avoid race with concurrent config updates
+	clientLock.Lock()
+	host := vars.APIConfig.Smarthome.MQTTHost
+	port := vars.APIConfig.Smarthome.MQTTPort
+	user := vars.APIConfig.Smarthome.MQTTUser
+	pass := vars.APIConfig.Smarthome.MQTTPass
+	clientID := vars.APIConfig.Smarthome.ClientID
+	useTLS := vars.APIConfig.Smarthome.UseTLS
+	clientLock.Unlock()
+
+	if host == "" {
+		return fmt.Errorf("mqtt_host is required")
+	}
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("mqtt_port must be between 1 and 65535")
+	}
+
 	// Disconnect existing connection if any
 	Disconnect()
 
 	opts := mqtt.NewClientOptions()
-	opts.AddBroker(fmt.Sprintf("tcp://%s:%d", vars.APIConfig.Smarthome.MQTTHost, vars.APIConfig.Smarthome.MQTTPort))
-	opts.SetClientID(vars.APIConfig.Smarthome.ClientID)
-	opts.SetUsername(vars.APIConfig.Smarthome.MQTTUser)
-	opts.SetPassword(vars.APIConfig.Smarthome.MQTTPass)
+	brokerScheme := "tcp"
+	if useTLS {
+		brokerScheme = "ssl"
+	}
+	opts.AddBroker(fmt.Sprintf("%s://%s:%d", brokerScheme, host, port))
+	opts.SetClientID(clientID)
+	opts.SetUsername(user)
+	opts.SetPassword(pass)
 	opts.SetAutoReconnect(true)
 	opts.SetConnectRetry(true)
 	opts.SetConnectRetryInterval(5 * time.Second)
@@ -71,10 +92,9 @@ func Connect() error {
 	opts.OnConnect = onConnectHandler
 	opts.OnConnectionLost = onConnectionLostHandler
 
-	if vars.APIConfig.Smarthome.UseTLS {
-		opts.AddBroker(fmt.Sprintf("ssl://%s:%d", vars.APIConfig.Smarthome.MQTTHost, vars.APIConfig.Smarthome.MQTTPort))
+	if useTLS {
 		tlsConfig := &tls.Config{
-			InsecureSkipVerify: true,
+			InsecureSkipVerify: vars.APIConfig.Smarthome.InsecureSkipVerify,
 		}
 		opts.SetTLSConfig(tlsConfig)
 	}
@@ -86,8 +106,10 @@ func Connect() error {
 	token := client.Connect()
 	token.WaitTimeout(10 * time.Second)
 	if token.Error() != nil {
+		clientLock.Lock()
 		vars.APIConfig.Smarthome.Connected = false
 		vars.APIConfig.Smarthome.LastError = token.Error().Error()
+		clientLock.Unlock()
 		vars.WriteConfigToDisk()
 		return token.Error()
 	}
@@ -109,11 +131,19 @@ func Disconnect() {
 	}
 	isConnected = false
 	vars.APIConfig.Smarthome.Connected = false
+	vars.WriteConfigToDisk()
 }
 
 // TestConnection attempts to connect to the MQTT broker with the given settings
 // and returns the result without saving configuration
-func TestConnection(host string, port int, username, password, clientID string, useTLS bool) error {
+func TestConnection(host string, port int, username, password, clientID string, useTLS bool, insecureSkipVerify bool) error {
+	if host == "" {
+		return fmt.Errorf("mqtt_host is required")
+	}
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("mqtt_port must be between 1 and 65535")
+	}
+
 	opts := mqtt.NewClientOptions()
 	brokerURL := fmt.Sprintf("tcp://%s:%d", host, port)
 	if useTLS {
@@ -127,7 +157,7 @@ func TestConnection(host string, port int, username, password, clientID string, 
 
 	if useTLS {
 		tlsConfig := &tls.Config{
-			InsecureSkipVerify: true,
+			InsecureSkipVerify: insecureSkipVerify,
 		}
 		opts.SetTLSConfig(tlsConfig)
 	}

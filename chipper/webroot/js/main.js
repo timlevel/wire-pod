@@ -634,18 +634,38 @@ function checkSmarthome() {
   smarthomeInputs.forEach((id) => {
     getE(id).style.display = enableSmarthome ? "block" : "none";
   });
+  toggleInsecureSkipVerify();
+}
+
+function toggleInsecureSkipVerify() {
+  var tlsChecked = getE("mqttTLS").checked;
+  var enableSmarthome = getE("enableSmarthome").checked;
+  var div = getE("mqttInsecureDiv");
+  div.style.display = (tlsChecked && enableSmarthome) ? "block" : "none";
 }
 
 function sendSmarthomeConfig() {
+  var port = parseInt(getE("mqttPort").value) || 1883;
+  if (port < 1 || port > 65535) {
+    displayError("smarthomeStatus", "Port must be between 1 and 65535");
+    return;
+  }
+  var host = (getE("mqttHost").value || "").trim();
+  if (getE("enableSmarthome").checked && host === "") {
+    displayError("smarthomeStatus", "MQTT Host is required when smarthome is enabled");
+    return;
+  }
+
   const data = {
     enable: getE("enableSmarthome").checked,
     provider: getE("smarthomeProvider").value,
-    mqtt_host: getE("mqttHost").value,
-    mqtt_port: parseInt(getE("mqttPort").value) || 1883,
+    mqtt_host: host,
+    mqtt_port: port,
     mqtt_user: getE("mqttUser").value,
     mqtt_pass: getE("mqttPass").value,
     client_id: getE("mqttClientID").value || "wire-pod-vector",
     use_tls: getE("mqttTLS").checked,
+    insecure_skip_verify: getE("mqttInsecureSkipVerify").checked,
     connected: false,
     last_error: ""
   };
@@ -669,13 +689,25 @@ function sendSmarthomeConfig() {
 }
 
 function testSmarthomeConnection() {
+  var host = (getE("mqttHost").value || "").trim();
+  var port = parseInt(getE("mqttPort").value) || 1883;
+  if (host === "") {
+    displayError("smarthomeTestStatus", "MQTT Host is required");
+    return;
+  }
+  if (port < 1 || port > 65535) {
+    displayError("smarthomeTestStatus", "Port must be between 1 and 65535");
+    return;
+  }
+
   const data = {
-    mqtt_host: getE("mqttHost").value,
-    mqtt_port: parseInt(getE("mqttPort").value) || 1883,
+    mqtt_host: host,
+    mqtt_port: port,
     mqtt_user: getE("mqttUser").value,
     mqtt_pass: getE("mqttPass").value,
     client_id: getE("mqttClientID").value || "wire-pod-vector-test",
-    use_tls: getE("mqttTLS").checked
+    use_tls: getE("mqttTLS").checked,
+    insecure_skip_verify: getE("mqttInsecureSkipVerify").checked
   };
 
   displayMessage("smarthomeTestStatus", "Testing connection...");
@@ -713,6 +745,7 @@ function updateSmarthomeConfig() {
       getE("mqttPass").value = data.mqtt_pass || "";
       getE("mqttClientID").value = data.client_id || "wire-pod-vector";
       getE("mqttTLS").checked = data.use_tls || false;
+      getE("mqttInsecureSkipVerify").checked = data.insecure_skip_verify || false;
       
       // Update connection status display
       if (data.connected) {

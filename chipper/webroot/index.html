@@ -252,12 +252,19 @@
         <div id="mqttClientIDDiv" style="display: none; margin-top: 10px;">
           <label for="mqttClientID">Client ID:</label>
           <input type="text" id="mqttClientID" value="wire-pod-vector" />
-        </div>
+         </div>
         
         <div id="mqttTLSDiv" style="display: none; margin-top: 10px;">
           <label for="mqttTLS">
-            <input type="checkbox" id="mqttTLS" />
+            <input type="checkbox" id="mqttTLS" onchange="toggleInsecureSkipVerify()" />
             Use TLS/SSL
+          </label>
+        </div>
+        
+        <div id="mqttInsecureDiv" style="display: none; margin-top: 10px;">
+          <label for="mqttInsecureSkipVerify">
+            <input type="checkbox" id="mqttInsecureSkipVerify" />
+            Skip TLS Certificate Verification (insecure — use only for self-signed certs)
           </label>
         </div>
         

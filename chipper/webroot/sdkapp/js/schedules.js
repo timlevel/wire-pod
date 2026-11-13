@@ -13,7 +13,7 @@ function message(text, error = false) {
   el("message").className = error ? "error" : "";
 }
 async function request(path, options = {}) {
-  const response = await fetch(path, options);
+  const response = await fetch(path, { ...options, headers: { "Content-Type": "application/json", ...options.headers } });
   if (!response.ok) throw new Error(await response.text());
   return response.status === 204 || response.status === 202 ? null : response.json();
 }
@@ -54,14 +54,16 @@ function edit(s) {
   el("timezone").value = s.timezone; el("enabled").checked = s.enabled;
   if (![...el("robot").options].some(o => o.value === s.esn)) el("robot").add(new Option(s.esn, s.esn));
   el("robot").value = s.esn;
-  el("actions").replaceChildren(); s.actions.forEach(addAction);
+  el("actions").replaceChildren(); (s.actions || []).forEach(addAction);
   el("scheduleForm").scrollIntoView({ behavior: "smooth" });
 }
 function payload(s) {
   return { id: s.id, name: s.name, esn: s.esn, cron: s.cron, timezone: s.timezone, enabled: s.enabled, actions: s.actions };
 }
 function stamp(value, zone) {
-  return value && !value.startsWith("0001-") ? new Date(value).toLocaleString(undefined, { timeZone: zone }) : "—";
+  if (!value || value.startsWith("0001-")) return "—";
+  try { return new Date(value).toLocaleString(undefined, { timeZone: zone }); }
+  catch { return new Date(value).toLocaleString(); }
 }
 function button(label, action) {
   const b = document.createElement("button"); b.type = "button"; b.textContent = label;
@@ -83,17 +85,20 @@ async function load() {
     status.textContent = `${s.enabled ? "Enabled" : "Paused"}${s.running ? " · Running" : ""} · ${s.esn}`;
     const timing = document.createElement("p"); timing.textContent = `${s.cron} · ${s.timezone}`;
     const actions = document.createElement("p");
-    actions.textContent = s.actions.map(a => actionNames[a.type] + (a.text ? `: “${a.text}”` : a.animation ? `: ${a.animation}` : "")).join(" → ");
+    actions.textContent = (s.actions || []).map(a => (actionNames[a.type] || a.type) + (a.text ? `: “${a.text}”` : a.animation ? `: ${a.animation}` : "")).join(" → ");
     const next = document.createElement("p"); next.className = "muted";
     next.textContent = `Next: ${stamp(s.nextRun, s.timezone)} · Last: ${stamp(s.lastRun, s.timezone)}`;
     const result = document.createElement("p");
-    result.textContent = s.lastError ? `Last error: ${s.lastError}` : s.running ? "Actions are running…" : stamp(s.lastRun, s.timezone) !== "—" ? "Last run completed." : "Has not run yet.";
+    result.textContent = s.loadError ? `Saved schedule needs repair: ${s.loadError}` : s.lastError ? `Last error: ${s.lastError}` : s.running ? "Actions are running…" : stamp(s.lastRun, s.timezone) !== "—" ? "Last run completed." : "Has not run yet.";
+    if (s.loadError) result.className = "error";
     card.append(title, status, timing, actions, next, result,
       button("Edit", () => edit(s)),
       button(s.enabled ? "Pause" : "Enable", async () => {
+        if (s.loadError) { edit(s); message("Fix this schedule and save before enabling it.", true); return; }
         await request("/api-schedules/", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload(s), enabled: !s.enabled }) }); await load();
       }),
       button("Run now", async () => {
+        if (s.loadError) throw new Error("Fix this schedule and save before running it.");
         await request(`/api-schedules/${s.id}/run`, { method: "POST" }); message("Run started. Status updates below."); await load();
       }),
       button("Delete", async () => {

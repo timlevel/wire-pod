@@ -87,7 +87,7 @@ func TestCorruptFilePreserved(t *testing.T) {
 }
 func TestValidationAndTimezone(t *testing.T) {
 	for _, change := range []func(*Schedule){
-		func(s *Schedule) { s.Timezone = "Mars/Olympus" }, func(s *Schedule) { s.Cron = "* * * * * *" },
+		func(s *Schedule) { s.Timezone = "Mars/Olympus" }, func(s *Schedule) { s.Timezone = "Local" }, func(s *Schedule) { s.Cron = "* * * * * *" },
 		func(s *Schedule) { s.Cron = "0 0 31 2 *" }, func(s *Schedule) { s.Actions = nil },
 		func(s *Schedule) { s.Actions = []Action{{Type: "shell"}} }, func(s *Schedule) { s.Actions = []Action{{Type: "say_text"}} },
 	} {
@@ -188,11 +188,67 @@ func TestOverlapAndFailureStatus(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadedSerialVariantsCannotOverlap(t *testing.T) {
+	for _, serial := range []string{"00ABC123", " 00AbC123 "} {
+		t.Run(serial, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "schedules.json")
+			s := hourly()
+			s.Enabled = false
+			s.ESN = serial
+			data, err := json.Marshal([]Schedule{s})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			started := make(chan Schedule, 2)
+			finish := make(chan struct{})
+			defer close(finish)
+			m, err := Open(path, func(_ context.Context, s Schedule, _ time.Time) error {
+				started <- s
+				<-finish
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer m.Close()
+			got, err := os.ReadFile(path)
+			if err != nil || !bytes.Equal(data, got) {
+				t.Fatalf("load changed saved file: %v", err)
+			}
+			other := hourly()
+			other.ID, other.Enabled = "second", false
+			if err := m.Save(other); err != nil {
+				t.Fatal(err)
+			}
+			if err := m.start(s.ID, false); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-started:
+			case <-time.After(time.Second):
+				t.Fatal("loaded schedule did not start")
+			}
+			if err := m.start(other.ID, false); err == nil {
+				t.Fatal("loaded serial variant bypassed same-robot overlap protection")
+			}
+			if got := m.List()[0].ESN; got != other.ESN {
+				t.Fatalf("loaded serial is %q, want %q", got, other.ESN)
+			}
+		})
+	}
+}
+
 func TestAPI(t *testing.T) {
 	m := openTest(t, noRun)
 	call := func(method, path, body string) *httptest.ResponseRecorder {
 		r := httptest.NewRecorder()
-		m.ServeHTTP(r, httptest.NewRequest(method, path, strings.NewReader(body)))
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json; charset=utf-8")
+		m.ServeHTTP(r, req)
 		return r
 	}
 	s := hourly()
@@ -262,5 +318,136 @@ func TestCronDispatch(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("cron did not dispatch")
+	}
+}
+
+func TestInvalidSavedEntriesAreIsolated(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "schedules.json")
+	good, bad := hourly(), hourly()
+	bad.ID, bad.Cron = "bad", "60 * * * *"
+	data, _ := json.Marshal([]Schedule{good, bad})
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	m, err := Open(path, noRun)
+	if err != nil {
+		t.Fatalf("one invalid entry disabled all schedules: %v", err)
+	}
+	defer m.Close()
+	for _, status := range m.List() {
+		if status.ID == good.ID && status.NextRun.IsZero() {
+			t.Fatal("valid schedule disabled")
+		}
+		if status.ID == bad.ID {
+			encoded, _ := json.Marshal(status)
+			if status.Enabled || !status.NextRun.IsZero() || !bytes.Contains(encoded, []byte(`"loadError"`)) {
+				t.Fatalf("invalid entry not quarantined: %s", encoded)
+			}
+		}
+	}
+	if err := m.start(bad.ID, false); err == nil {
+		t.Fatal("invalid saved entry ran")
+	}
+	got, _ := os.ReadFile(path)
+	if !bytes.Equal(data, got) {
+		t.Fatal("load rewrote original file")
+	}
+	bad.Cron = good.Cron
+	if err := m.Save(bad); err != nil {
+		t.Fatal(err)
+	}
+	for _, status := range m.List() {
+		if status.ID == bad.ID && status.NextRun.IsZero() {
+			t.Fatal("fixed schedule still disabled")
+		}
+	}
+	bad.Cron = "invalid"
+	data, _ = json.Marshal([]Schedule{good, bad})
+	os.WriteFile(path, data, 0600)
+	m2, err := Open(path, noRun)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m2.Close()
+	if err := m2.Delete(bad.ID); err != nil {
+		t.Fatal(err)
+	}
+	if len(m2.List()) != 1 {
+		t.Fatal(m2.List())
+	}
+}
+
+func TestWriteAPIRequiresJSON(t *testing.T) {
+	m := openTest(t, noRun)
+	for _, path := range []string{"/api-schedules/", "/api-schedules/hourly/run"} {
+		for _, contentType := range []string{"", "text/plain", "application/x-www-form-urlencoded"} {
+			r := httptest.NewRequest("POST", path, strings.NewReader(`{}`))
+			r.Header.Set("Content-Type", contentType)
+			w := httptest.NewRecorder()
+			m.ServeHTTP(w, r)
+			if w.Code != http.StatusUnsupportedMediaType {
+				t.Fatalf("%s %s: %d", path, contentType, w.Code)
+			}
+		}
+	}
+}
+func TestInvalidSavedIdentityAndActions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "schedules.json")
+	good, duplicate, malformed := hourly(), hourly(), hourly()
+	malformed.ID, malformed.Timezone, malformed.Actions = "/bad/id", "Mars/Olympus", nil
+	data, _ := json.Marshal([]Schedule{good, duplicate, malformed})
+	os.WriteFile(path, data, 0600)
+	m, err := Open(path, noRun)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	if len(m.List()) != 3 {
+		t.Fatal("lost entries", m.List())
+	}
+	invalid := 0
+	for _, status := range m.List() {
+		if status.LoadError != "" {
+			invalid++
+			if status.Enabled || strings.Contains(status.ID, "/") {
+				t.Fatal(status)
+			}
+			if err := m.start(status.ID, false); err == nil {
+				t.Fatal("invalid entry ran")
+			}
+		}
+	}
+	if invalid != 2 {
+		t.Fatal(m.List())
+	}
+	if err := m.Save(good); err != nil {
+		t.Fatal(err)
+	}
+	m2, err := Open(path, noRun)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m2.Close()
+	enabled := 0
+	for _, status := range m2.List() {
+		if status.Enabled {
+			enabled++
+		}
+	}
+	if enabled != 1 {
+		t.Fatal("unrelated save activated invalid entry on restart", m2.List())
+	}
+}
+func TestFallBackCronRepeatsLocalHour(t *testing.T) {
+	s := hourly()
+	s.Cron = "0 1 * * *"
+	parsed, err := validate(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := parsed.Next(time.Date(2026, 11, 1, 5, 59, 0, 0, time.UTC))
+	second := parsed.Next(first)
+	if !first.Equal(time.Date(2026, 11, 1, 6, 0, 0, 0, time.UTC)) || !second.Equal(first.Add(time.Hour)) {
+		t.Fatalf("repeated local hour: %v, %v", first, second)
 	}
 }

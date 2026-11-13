@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -41,6 +42,7 @@ type Status struct {
 	NextRun   time.Time `json:"nextRun,omitempty"`
 	LastRun   time.Time `json:"lastRun,omitempty"`
 	LastError string    `json:"lastError,omitempty"`
+	LoadError string    `json:"loadError,omitempty"`
 	Running   bool      `json:"running"`
 }
 
@@ -50,6 +52,7 @@ type entry struct {
 	job       cron.EntryID
 	lastRun   time.Time
 	lastError string
+	loadError string
 	running   bool
 }
 
@@ -79,7 +82,7 @@ func validate(s Schedule) (cron.Schedule, error) {
 	if len(strings.Fields(s.Cron)) != 5 {
 		return nil, errors.New("cron must contain five fields: minute hour day month weekday")
 	}
-	if s.Timezone == "" {
+	if s.Timezone == "" || s.Timezone == "Local" {
 		return nil, errors.New("timezone is required, for example America/Chicago")
 	}
 	if _, err := time.LoadLocation(s.Timezone); err != nil {
@@ -113,7 +116,8 @@ func validate(s Schedule) (cron.Schedule, error) {
 	return parsed, nil
 }
 
-// Open validates the entire file before starting. A corrupt file is never overwritten.
+// Open preserves the file and quarantines invalid entries for repair through the API.
+// Unparseable JSON still fails closed without overwriting the file.
 func Open(path string, run Runner) (*Manager, error) {
 	m := &Manager{path: path, cron: cron.New(), entries: make(map[string]*entry), busy: make(map[string]bool), run: run}
 	b, err := os.ReadFile(path)
@@ -126,14 +130,20 @@ func Open(path string, run Runner) (*Manager, error) {
 			return nil, err
 		}
 		for _, s := range saved {
+			s.ESN = strings.ToLower(strings.TrimSpace(s.ESN))
 			parsed, err := validate(s)
+			_, duplicate := m.entries[s.ID]
+			if duplicate || s.ID == "" || len(s.ID) > 100 || strings.ContainsAny(s.ID, "/\\") {
+				// Assign an addressable ID so a malformed/duplicate entry can be deleted.
+				s.ID = uuid.NewString()
+				err = errors.Join(err, errors.New("invalid or duplicate saved ID; replacement ID assigned"))
+			}
+			e := &entry{Schedule: s, parsed: parsed}
 			if err != nil {
-				return nil, fmt.Errorf("schedule %s: %w", s.ID, err)
+				e.loadError = err.Error()
+				e.Enabled = false
 			}
-			if _, exists := m.entries[s.ID]; exists {
-				return nil, errors.New("duplicate schedule ID")
-			}
-			m.entries[s.ID] = &entry{Schedule: s, parsed: parsed}
+			m.entries[s.ID] = e
 		}
 	}
 	for _, e := range m.entries {
@@ -146,7 +156,7 @@ func Open(path string, run Runner) (*Manager, error) {
 func (m *Manager) Close() context.Context { return m.cron.Stop() }
 
 func (m *Manager) register(e *entry) {
-	if e.Enabled {
+	if e.Enabled && e.loadError == "" {
 		id := e.ID
 		e.job = m.cron.Schedule(e.parsed, cron.FuncJob(func() { m.start(id, true) }))
 	}
@@ -244,9 +254,12 @@ func (m *Manager) List() []Status {
 	defer m.mu.Unlock()
 	result := make([]Status, 0, len(m.entries))
 	for _, e := range m.entries {
-		s := Status{Schedule: e.Schedule, LastRun: e.lastRun, LastError: e.lastError, Running: e.running}
+		s := Status{Schedule: e.Schedule, LastRun: e.lastRun, LastError: e.lastError, LoadError: e.loadError, Running: e.running}
 		s.Actions = append([]Action(nil), e.Actions...)
-		if e.Enabled {
+		if e.loadError != "" {
+			s.Enabled = false
+		}
+		if e.Enabled && e.loadError == "" {
 			s.NextRun = e.parsed.Next(time.Now())
 		}
 		result = append(result, s)
@@ -262,6 +275,10 @@ func (m *Manager) start(id string, scheduled bool) error {
 	if !ok {
 		m.mu.Unlock()
 		return os.ErrNotExist
+	}
+	if e.loadError != "" {
+		m.mu.Unlock()
+		return fmt.Errorf("repair the saved schedule before running: %s", e.loadError)
 	}
 	if scheduled && !e.Enabled {
 		m.mu.Unlock()
@@ -304,6 +321,13 @@ func (m *Manager) start(id string, scheduled bool) error {
 func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
+	if r.Method == http.MethodPost || r.Method == http.MethodDelete {
+		mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		if err != nil || mediaType != "application/json" {
+			http.Error(w, "Content-Type must be application/json", http.StatusUnsupportedMediaType)
+			return
+		}
+	}
 	id := strings.TrimPrefix(r.URL.Path, "/api-schedules/")
 	switch {
 	case r.Method == http.MethodGet && id == "":

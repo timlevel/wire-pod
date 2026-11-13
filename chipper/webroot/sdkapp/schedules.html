@@ -14,9 +14,11 @@
     .action select { flex: 1; } .action input { flex: 2; min-width: 80px; }
     button { margin: 5px 5px 5px 0; width: auto; }
     .card { border: 1px solid #537364; padding: 18px; margin: 16px 0; border-radius: 6px; }
-    .card h3 { margin-top: 0; } .muted { color: #b8c9c0; } #message { white-space: pre-wrap; }
+    .card h3 { margin-top: 0; } .muted { color: #b8c9c0; } #message { white-space: pre-wrap; color: var(--text-color); }
+    code { color: #d5f9e5; background: #303c36; padding: 2px 4px; }
+    #scheduleForm button[type=submit] { color: var(--text-color); background: #111; border-color: var(--fg-color); }
     #message.error { color: #ffaaaa; } .badge { color: var(--fg-color); }
-    @media(max-width:600px) { .fields { grid-template-columns: 1fr; gap: 0; } .action { flex-wrap: wrap; } }
+    @media(max-width:600px) { .fields { grid-template-columns: 1fr; gap: 0; } .action { display: grid; grid-template-columns: minmax(0, 1fr) auto; } .action input { grid-column: 1 / -1; grid-row: 2; } .action button { grid-column: 2; grid-row: 1; } }
   </style>
   <script src="./js/schedules.js" defer></script>
 </head>

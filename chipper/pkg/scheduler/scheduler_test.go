@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/robfig/cron/v3"
 )
 
 func hourly() Schedule {
@@ -229,5 +231,36 @@ func TestWriteFailureDoesNotActivate(t *testing.T) {
 	}
 	if len(m.List()) != 0 {
 		t.Fatal("unsaved schedule activated")
+	}
+}
+
+// Exercise dispatch through the cron engine without waiting for a wall-clock minute.
+func TestCronDispatch(t *testing.T) {
+	fired := make(chan Schedule, 1)
+	m := openTest(t, func(_ context.Context, s Schedule, _ time.Time) error {
+		select {
+		case fired <- s:
+		default:
+		}
+		return nil
+	})
+	s := hourly()
+	s.Enabled = false
+	if err := m.Save(s); err != nil {
+		t.Fatal(err)
+	}
+	m.mu.Lock()
+	e := m.entries[s.ID]
+	e.Enabled = true
+	e.parsed = cron.Every(time.Second)
+	m.register(e)
+	m.mu.Unlock()
+	select {
+	case got := <-fired:
+		if got.ID != s.ID {
+			t.Fatal(got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("cron did not dispatch")
 	}
 }

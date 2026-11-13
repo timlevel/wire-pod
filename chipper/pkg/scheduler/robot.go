@@ -102,10 +102,24 @@ func expandText(text string, when time.Time, zone string) string {
 	return strings.NewReplacer("{hour}", strconv.Itoa(hour), "{hour24}", strconv.Itoa(local.Hour()), "{time}", local.Format("3:04 PM")).Replace(text)
 }
 
-func execute(ctx context.Context, client vectorpb.ExternalInterfaceClient, s Schedule, when time.Time) (runErr error) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	stream, err := client.BehaviorControl(ctx)
+func execute(ctx context.Context, client vectorpb.ExternalInterfaceClient, s Schedule, when time.Time) error {
+	return executeWithLimits(ctx, client, s, when, 20*time.Second, 30*time.Second)
+}
+
+func executeWithLimits(ctx context.Context, client vectorpb.ExternalInterfaceClient, s Schedule, when time.Time, grantWait, recoveryWait time.Duration) (runErr error) {
+	// Keep behavior control alive through a bounded recovery after the action deadline.
+	// Cancellation/loss of the control stream still cancels every RPC immediately.
+	deadline := time.Now().Add(2 * time.Minute)
+	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
+		deadline = d
+	}
+	sessionCtx, endSession := context.WithDeadline(context.WithoutCancel(ctx), deadline.Add(recoveryWait))
+	defer endSession()
+	controlCtx, loseControl := context.WithCancelCause(sessionCtx)
+	defer loseControl(nil)
+	runCtx, cancelRun := context.WithCancelCause(ctx)
+	defer cancelRun(nil)
+	stream, err := client.BehaviorControl(controlCtx)
 	if err != nil {
 		return err
 	}
@@ -114,38 +128,71 @@ func execute(ctx context.Context, client vectorpb.ExternalInterfaceClient, s Sch
 	if err != nil {
 		return err
 	}
-	for {
-		response, err := stream.Recv()
-		if err != nil {
-			return fmt.Errorf("wait for behavior control: %w", err)
-		}
-		if response.GetControlGrantedResponse() != nil {
-			break
-		}
-	}
-	defer stream.Send(&vectorpb.BehaviorControlRequest{RequestType: &vectorpb.BehaviorControlRequest_ControlRelease{ControlRelease: &vectorpb.ControlRelease{}}})
-	// If an intermediate action fails after undocking, still try the requested return.
-	undocked, returned := false, false
-	wantsReturn := s.Actions[len(s.Actions)-1].Type == "drive_on_charger"
-	defer func() {
-		if runErr != nil && undocked && !returned && wantsReturn && ctx.Err() == nil {
-			if err := perform(ctx, client, Action{Type: "drive_on_charger"}, when, s.Timezone); err != nil {
-				runErr = errors.Join(runErr, fmt.Errorf("return to charger: %w", err))
+	granted, stopped := make(chan struct{}, 1), make(chan struct{})
+	go func() {
+		defer close(stopped)
+		for {
+			response, err := stream.Recv()
+			if err != nil {
+				err = fmt.Errorf("behavior control stream: %w", err)
+			}
+			if response.GetControlLostEvent() != nil || response.GetReservedControlLostEvent() != nil {
+				err = errors.New("behavior control lost to another behavior or connection")
+			}
+			if err != nil {
+				loseControl(err)
+				cancelRun(err)
+				return
+			}
+			if response.GetControlGrantedResponse() != nil {
+				select {
+				case granted <- struct{}{}:
+				default:
+				}
 			}
 		}
 	}()
-	for i, a := range s.Actions {
-		if err := perform(ctx, client, a, when, s.Timezone); err != nil {
-			return fmt.Errorf("action %d (%s): %w", i+1, a.Type, err)
+	// Cancel and join the receiver on every exit, including failure to obtain control.
+	defer func() { loseControl(nil); <-stopped }()
+	defer stream.Send(&vectorpb.BehaviorControlRequest{RequestType: &vectorpb.BehaviorControlRequest_ControlRelease{ControlRelease: &vectorpb.ControlRelease{}}})
+	grantCtx, stopGrantWait := context.WithTimeout(runCtx, grantWait)
+	defer stopGrantWait()
+	select {
+	case <-granted:
+	case <-grantCtx.Done():
+		return fmt.Errorf("wait for behavior control: %w", context.Cause(grantCtx))
+	}
+	undocked := false
+	defer func() {
+		if runErr == nil || !undocked {
+			return
 		}
+		if controlCtx.Err() != nil {
+			runErr = errors.Join(runErr, fmt.Errorf("return to charger unavailable: %w", context.Cause(controlCtx)))
+			return
+		}
+		recoveryCtx, cancel := context.WithTimeout(controlCtx, recoveryWait)
+		defer cancel()
+		if err := perform(recoveryCtx, client, Action{Type: "drive_on_charger"}, when, s.Timezone); err != nil {
+			runErr = errors.Join(runErr, fmt.Errorf("return to charger: %w", err))
+		}
+	}()
+	for i, a := range s.Actions {
+		if runCtx.Err() != nil {
+			return context.Cause(runCtx)
+		}
+		// An interrupted undock may already have moved the robot.
 		if a.Type == "drive_off_charger" {
 			undocked = true
 		}
+		if err := perform(runCtx, client, a, when, s.Timezone); err != nil {
+			return fmt.Errorf("action %d (%s): %w", i+1, a.Type, errors.Join(err, context.Cause(runCtx)))
+		}
 		if a.Type == "drive_on_charger" {
-			returned = true
+			undocked = false
 		}
 	}
-	return nil
+	return context.Cause(runCtx)
 }
 
 func statusError(status *vectorpb.ResponseStatus) error {
@@ -173,7 +220,7 @@ func behaviorError(status *vectorpb.ResponseStatus, result vectorpb.BehaviorResu
 }
 
 func perform(ctx context.Context, c vectorpb.ExternalInterfaceClient, a Action, when time.Time, zone string) error {
-	// Leave time in the overall run budget for a return-to-charger attempt.
+	// Each RPC is bounded; recovery has its own budget under retained control.
 	ctx, cancel := context.WithTimeout(ctx, 40*time.Second)
 	defer cancel()
 	switch a.Type {

@@ -6,6 +6,8 @@ The **hourly announcement** preset runs `0 * * * *`: leave the charger, say “I
 
 Each schedule has an ordered sequence of up to 20 actions: leave charger, say text, play a named animation, or return to charger. Speech replaces `{hour}` with 1–12, `{hour24}` with 0–23, and `{time}` with a time such as `3:00 PM`. Placeholders use the run's start time in the schedule's timezone.
 
+**Play animation** offers common animations by name (Happy, Thinking, Celebrate, Love, and more). Choose one from the Animation dropdown; no animation code is needed. **Custom animation name…** lets you enter an exact internal name from your Vector, such as `anim_pounce_success_03`. Existing saved custom names are preserved when editing. Availability depends on Vector’s firmware; unsupported names appear as Last run errors. Speech and animation fields keep separate values when changing the action type.
+
 Cron has five fields: **minute hour day-of-month month weekday**. Lists, ranges, and steps are supported. Sunday is 0. When both day-of-month and weekday are restricted, either matching field triggers the job (for example, `0 9 1 * 1` means every Monday and every first of the month at 9 AM). Examples:
 
 | Expression | Runs |

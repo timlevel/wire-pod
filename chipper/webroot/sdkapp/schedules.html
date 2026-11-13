@@ -11,14 +11,16 @@
     input:not([type=checkbox]), select { width: 100%; box-sizing: border-box; padding: 10px; }
     .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
     .action { display: flex; gap: 8px; margin: 10px 0; align-items: center; }
-    .action select { flex: 1; } .action input { flex: 2; min-width: 80px; }
+    .action > select { flex: 1; min-width: 0; } .action-fields { flex: 2; min-width: 0; }
+    .action-fields label { margin: 0 0 5px; } .action-fields small { display: block; margin-top: 5px; }
+    .action-fields [hidden], .action-fields[hidden] { display: none; }
     button { margin: 5px 5px 5px 0; width: auto; }
     .card { border: 1px solid #537364; padding: 18px; margin: 16px 0; border-radius: 6px; }
     .card h3 { margin-top: 0; } .muted { color: #b8c9c0; } #message { white-space: pre-wrap; color: var(--text-color); }
     code { color: #d5f9e5; background: #303c36; padding: 2px 4px; }
     #scheduleForm button[type=submit] { color: var(--text-color); background: #111; border-color: var(--fg-color); }
     #message.error { color: #ffaaaa; } .badge { color: var(--fg-color); }
-    @media(max-width:600px) { .fields { grid-template-columns: 1fr; gap: 0; } .action { display: grid; grid-template-columns: minmax(0, 1fr) auto; } .action input { grid-column: 1 / -1; grid-row: 2; } .action button { grid-column: 2; grid-row: 1; } }
+    @media(max-width:600px) { .fields { grid-template-columns: 1fr; gap: 0; } .action { display: grid; grid-template-columns: minmax(0, 1fr) auto; } .action-fields { grid-column: 1 / -1; grid-row: 2; } .action button { grid-column: 2; grid-row: 1; } }
   </style>
   <script src="./js/schedules.js" defer></script>
 </head>

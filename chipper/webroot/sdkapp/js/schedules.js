@@ -8,6 +8,19 @@ const actionNames = {
   play_animation: "Play animation",
   drive_on_charger: "Return to charger"
 };
+// Common animations already used by wire-pod's conversational responses.
+const animationChoices = {
+  anim_onboarding_reacttoface_happy_01: "Happy",
+  anim_blackjack_victorwin_01: "Very happy",
+  anim_feedback_meanwords_01: "Sad",
+  anim_rtpickup_loop_10: "Angry",
+  anim_feedback_shutup_01: "Frustrated",
+  anim_observing_self_absorbed_01: "Darting eyes",
+  anim_meetvictor_lookface_timeout_01: "Confused",
+  anim_explorer_scan_short_04: "Thinking",
+  anim_pounce_success_03: "Celebrate",
+  anim_feedback_iloveyou_02: "Love"
+};
 function message(text, error = false) {
   el("message").textContent = text;
   el("message").className = error ? "error" : "";
@@ -22,18 +35,38 @@ function addAction(action = { type: "say_text", text: "Hello!" }) {
   const type = document.createElement("select"); type.setAttribute("aria-label", "Action type");
   for (const [value, name] of Object.entries(actionNames)) type.add(new Option(name, value));
   type.value = action.type;
-  const value = document.createElement("input"); value.value = action.text || action.animation || "";
+  const fields = document.createElement("div"); fields.className = "action-fields";
+  const speech = document.createElement("input"); speech.className = "speech-text";
+  speech.value = action.text || ""; speech.maxLength = 1000;
+  speech.placeholder = "It is {hour} o'clock!"; speech.setAttribute("aria-label", "Speech text");
+  const animationLabel = document.createElement("label"); animationLabel.textContent = "Animation";
+  const animation = document.createElement("select"); animation.className = "animation-choice"; animation.setAttribute("aria-label", "Animation");
+  animation.add(new Option("Choose an animation…", ""));
+  for (const [name, label] of Object.entries(animationChoices)) animation.add(new Option(label, name));
+  animation.add(new Option("Custom animation name…", "custom"));
+  animation.value = action.animation ? (Object.hasOwn(animationChoices, action.animation) ? action.animation : "custom") : "";
+  animationLabel.append(animation);
+  const customLabel = document.createElement("label"); customLabel.textContent = "Custom animation name";
+  const custom = document.createElement("input"); custom.className = "animation-custom";
+  custom.value = animation.value === "custom" ? action.animation : ""; custom.maxLength = 200;
+  custom.placeholder = "Exact animation name, e.g. anim_pounce_success_03";
+  customLabel.append(custom);
+  const help = document.createElement("small"); help.className = "muted";
+  help.textContent = "Choose a common animation. Custom names must exactly match an animation on your Vector.";
   function update() {
-    value.hidden = !["say_text", "play_animation"].includes(type.value);
-    value.required = !value.hidden;
-    value.maxLength = type.value === "say_text" ? 1000 : 200;
-    value.placeholder = type.value === "say_text" ? "It is {hour} o'clock!" : "Animation name";
-    value.setAttribute("aria-label", type.value === "say_text" ? "Speech text" : "Animation name");
+    const isSpeech = type.value === "say_text", isAnimation = type.value === "play_animation";
+    fields.hidden = !isSpeech && !isAnimation;
+    speech.hidden = !isSpeech; speech.required = isSpeech;
+    animationLabel.hidden = !isAnimation; animation.required = isAnimation;
+    customLabel.hidden = !isAnimation || animation.value !== "custom";
+    custom.required = !customLabel.hidden;
+    help.hidden = !isAnimation;
   }
-  type.addEventListener("change", update); update();
+  type.addEventListener("change", update); animation.addEventListener("change", update); update();
   const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "Remove";
   remove.addEventListener("click", () => row.remove());
-  row.append(type, value, remove); el("actions").append(row);
+  fields.append(speech, animationLabel, customLabel, help);
+  row.append(type, fields, remove); el("actions").append(row);
 }
 function preset() {
   el("cron").value = "0 * * * *";
@@ -112,8 +145,9 @@ async function load() {
 el("scheduleForm").addEventListener("submit", async event => {
   event.preventDefault();
   const actions = [...el("actions").children].map(row => {
-    const type = row.querySelector("select").value, value = row.querySelector("input").value;
-    return { type, ...(type === "say_text" ? { text: value } : type === "play_animation" ? { animation: value } : {}) };
+    const type = row.querySelector("select").value;
+    const animation = row.querySelector(".animation-choice").value;
+    return { type, ...(type === "say_text" ? { text: row.querySelector(".speech-text").value } : type === "play_animation" ? { animation: animation === "custom" ? row.querySelector(".animation-custom").value : animation } : {}) };
   });
   const schedule = { id: editing, name: el("name").value, esn: el("robot").value, cron: el("cron").value, timezone: el("timezone").value, enabled: el("enabled").checked, actions };
   try {

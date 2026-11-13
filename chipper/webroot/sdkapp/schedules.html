@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vector schedules</title>
+  <link rel="stylesheet" href="../css/style.css">
+  <style>
+    #content { max-width: 920px; margin: auto; padding: 24px; }
+    label { display: block; margin: 14px 0 5px; }
+    input:not([type=checkbox]), select { width: 100%; box-sizing: border-box; padding: 10px; }
+    .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .action { display: flex; gap: 8px; margin: 10px 0; align-items: center; }
+    .action select { flex: 1; } .action input { flex: 2; min-width: 80px; }
+    button { margin: 5px 5px 5px 0; width: auto; }
+    .card { border: 1px solid #537364; padding: 18px; margin: 16px 0; border-radius: 6px; }
+    .card h3 { margin-top: 0; } .muted { color: #b8c9c0; } #message { white-space: pre-wrap; }
+    #message.error { color: #ffaaaa; } .badge { color: var(--fg-color); }
+    @media(max-width:600px) { .fields { grid-template-columns: 1fr; gap: 0; } .action { flex-wrap: wrap; } }
+  </style>
+  <script src="./js/schedules.js" defer></script>
+</head>
+<body><main id="content">
+  <a href="../index.html">← Back to wire-pod</a>
+  <h1>Vector schedules</h1>
+  <p>Give Vector a routine. Choose when it runs and the actions he performs in order.</p>
+  <p class="muted">Wire-pod must be running and Vector must be reachable. Missed runs are skipped.</p>
+  <div id="message" role="status" aria-live="polite"></div>
+  <section class="card" aria-labelledby="editorTitle">
+    <h2 id="editorTitle">New schedule</h2>
+    <button id="hourly" type="button">Use hourly announcement</button>
+    <form id="scheduleForm">
+      <label for="name">Name</label><input id="name" required maxlength="100" value="Hourly announcement">
+      <div class="fields">
+        <div><label for="robot">Vector</label><select id="robot" required></select></div>
+        <div><label for="timezone">Timezone</label><input id="timezone" required placeholder="America/Chicago"></div>
+        <div><label for="cron">Cron expression</label><input id="cron" required value="0 * * * *" aria-describedby="cronHelp"></div>
+        <div><label for="enabled"><input id="enabled" type="checkbox" checked> Enabled</label></div>
+      </div>
+      <p id="cronHelp" class="muted">Minute · hour · day · month · weekday. <code>0 * * * *</code> runs on the hour; <code>0 9-20 * * *</code> runs hourly from 9 AM to 8 PM.</p>
+      <h3>Actions, in order</h3>
+      <div id="actions"></div>
+      <button id="addAction" type="button">Add action</button>
+      <p class="muted">Speech supports <code>{hour}</code> (1–12), <code>{hour24}</code> (0–23), and <code>{time}</code>, using this schedule's timezone.</p>
+      <p class="muted">Returning to the charger depends on Vector being able to see and reach it.</p>
+      <button type="submit">Save schedule</button><button id="reset" type="button">New schedule</button>
+    </form>
+  </section>
+  <section aria-labelledby="savedTitle"><h2 id="savedTitle">Saved schedules</h2><div id="schedules">Loading…</div></section>
+</main></body>
+</html>

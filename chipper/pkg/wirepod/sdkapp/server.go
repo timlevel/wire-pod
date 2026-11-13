@@ -18,6 +18,7 @@ import (
 
 	"github.com/fforchino/vector-go-sdk/pkg/vectorpb"
 	"github.com/kercre123/wire-pod/chipper/pkg/logger"
+	"github.com/kercre123/wire-pod/chipper/pkg/scheduler"
 	"github.com/kercre123/wire-pod/chipper/pkg/scripting"
 	"github.com/kercre123/wire-pod/chipper/pkg/vars"
 )
@@ -73,7 +74,7 @@ func SdkapiHandler(w http.ResponseWriter, r *http.Request) {
 		hue := r.FormValue("hue")
 		sat := r.FormValue("sat")
 		setCustomEyeColor(robotObj, hue, sat)
-		fmt.Fprintf(w, hue+sat)
+		fmt.Fprint(w, hue+sat)
 		return
 	case r.URL.Path == "/api-sdk/volume":
 		volume := r.FormValue("volume")
@@ -523,23 +524,23 @@ func SdkapiHandler(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/api-sdk/trigger_wake_word":
 		robotIP := strings.Split(robotObj.Target, ":")[0]
 		consoleURL := fmt.Sprintf("http://%s:8889/consolevarset?key=FakeButtonPressType&value=singlePressDetected", robotIP)
-		
+
 		client := &http.Client{
 			Timeout: 10 * time.Second,
 		}
-		
+
 		resp, err := client.Get(consoleURL)
 		if err != nil {
 			http.Error(w, "Failed to trigger wake word: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 		defer resp.Body.Close()
-		
+
 		if resp.StatusCode != http.StatusOK {
 			http.Error(w, "Consolevars returned error", resp.StatusCode)
 			return
 		}
-		
+
 		fmt.Fprint(w, "success")
 		return
 	}
@@ -619,6 +620,16 @@ func DisableCachingAndSniffing(next http.Handler) http.Handler {
 
 func BeginServer() {
 	scripting.RegisterScriptingAPI()
+	http.HandleFunc("/api-schedule-robots", scheduler.RobotList(vars.BotInfoPath))
+	schedules, err := scheduler.Open(filepath.Join(vars.JdocsDir, "schedules.json"), scheduler.RobotRunner(vars.BotInfoPath))
+	if err != nil {
+		logger.Println("Scheduler could not start: ", err)
+		http.HandleFunc("/api-schedules/", func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "Scheduler could not load schedules.json; check server logs", http.StatusServiceUnavailable)
+		})
+	} else {
+		http.Handle("/api-schedules/", schedules)
+	}
 	if os.Getenv("JDOCS_PINGER_ENABLED") == "false" {
 		PingerEnabled = false
 		logger.Println("Jdocs pinger has been disabled")

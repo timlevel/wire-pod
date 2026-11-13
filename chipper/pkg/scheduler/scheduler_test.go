@@ -188,6 +188,60 @@ func TestOverlapAndFailureStatus(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadedSerialVariantsCannotOverlap(t *testing.T) {
+	for _, serial := range []string{"00ABC123", " 00AbC123 "} {
+		t.Run(serial, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "schedules.json")
+			s := hourly()
+			s.Enabled = false
+			s.ESN = serial
+			data, err := json.Marshal([]Schedule{s})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			started := make(chan Schedule, 2)
+			finish := make(chan struct{})
+			defer close(finish)
+			m, err := Open(path, func(_ context.Context, s Schedule, _ time.Time) error {
+				started <- s
+				<-finish
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer m.Close()
+			got, err := os.ReadFile(path)
+			if err != nil || !bytes.Equal(data, got) {
+				t.Fatalf("load changed saved file: %v", err)
+			}
+			other := hourly()
+			other.ID, other.Enabled = "second", false
+			if err := m.Save(other); err != nil {
+				t.Fatal(err)
+			}
+			if err := m.start(s.ID, false); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-started:
+			case <-time.After(time.Second):
+				t.Fatal("loaded schedule did not start")
+			}
+			if err := m.start(other.ID, false); err == nil {
+				t.Fatal("loaded serial variant bypassed same-robot overlap protection")
+			}
+			if got := m.List()[0].ESN; got != other.ESN {
+				t.Fatalf("loaded serial is %q, want %q", got, other.ESN)
+			}
+		})
+	}
+}
+
 func TestAPI(t *testing.T) {
 	m := openTest(t, noRun)
 	call := func(method, path, body string) *httptest.ResponseRecorder {

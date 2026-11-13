@@ -130,6 +130,7 @@ func Open(path string, run Runner) (*Manager, error) {
 			return nil, err
 		}
 		for _, s := range saved {
+			s.ESN = strings.ToLower(strings.TrimSpace(s.ESN))
 			parsed, err := validate(s)
 			_, duplicate := m.entries[s.ID]
 			if duplicate || s.ID == "" || len(s.ID) > 100 || strings.ContainsAny(s.ID, "/\\") {
